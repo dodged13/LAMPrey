@@ -1,16 +1,26 @@
 LAMPrey.Read_StepOne = function(){
   library(readxl)
   x = file.choose()
-  Setup <<- data.frame(read_excel(x, sheet = "Results", skip = 6))
+  Setup <<- data.frame(read_excel(x, sheet = "Results"))
+  z = which(Setup == "Task",arr.ind = TRUE)[1]
+  colnames(Setup) <<- Setup[z,] 
+  Setup <<- Setup[z+1:nrow(Setup),]
+  Setup <<- data.frame(read_excel(x, sheet = "Results", skip = z))
   Raw_Data <<- data.frame(read_excel(x, sheet = "Raw Data", skip = 6))
-  } ### Reads in the data from an excel output from a stepone, specifically raw data and results ###
+  } 
+
+### Reads in the data from an excel output from a stepone, specifically raw data and results ###
+
 LAMPrey.Read_QuantStudio = function(){
   library(readxl)
   x = file.choose()
-  Setup <<- data.frame(read_excel(x, sheet = "Sample Setup", skip = 46))
-  Raw_Data <<- data.frame(read_excel(x, sheet = "Raw Data", skip = 46))
-  
+  Setup <<- data.frame(read_excel(x, sheet = "Sample Setup"))
+  z = which(Setup == "Task",arr.ind = TRUE)[1]
+  colnames(Setup) <<- Setup[z,] 
+  Setup <<- Setup[z+1:nrow(Setup),]
+  Raw_Data <<- data.frame(read_excel(x, sheet = "Raw Data", skip = z))
 } ### Reads in the data from an excel output from a stepone, specifically raw data and results ###
+
 
 LAMPrey.annotate = function() {
   Raw_Data$Gene <<- Setup$Target.Name[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
