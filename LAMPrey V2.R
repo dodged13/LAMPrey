@@ -44,4 +44,4 @@ LAMPrey.analyse = function() {
     LAMPrey_Results$LAMPrey[LAMPrey_Results$Well == i] <<- approx(Raw_Data$normalised[Raw_Data$Well == i], 
                                                                   Raw_Data$Cycle[Raw_Data$Well == i], 
                                                                   max(na.omit(Raw_Data$normalised[Raw_Data$Well == i])))[2] }
-} ### Calculates a CT approximation for each well and creates a result dataframe named LAMPrey_Setup ###
+} ### Calculates a CT approximation for each well and creates a result dataframe named LAMPrey_Results ###
