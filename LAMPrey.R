@@ -40,7 +40,7 @@ LAMPrey.normalise = function(x) {
       Raw_Data$normalised[Raw_Data$Well == i & Raw_Data$Cycle == cycle_list[cy]] <<- Raw_Data[[x]][Raw_Data$Well == i & Raw_Data$Cycle == cycle_list[cy+5]] / 
         (Raw_Data[[x]][Raw_Data$Cycle == cycle_list[cy] & Raw_Data$Well == i ]) 
     } }
-  return(Raw_Data)} ### Uses the colour channel name as input - x = "GREEN", to calculate the Normalised LAMP value ###
+  return(Raw_Data)} ### Uses the colour channel name as input - x = "GREEN" for Step one or "x1.m1" for QuantStudio, to calculate the Normalised LAMP value ###
                                       
 LAMPrey.analyse = function() {
   well_list = unique(na.omit(Raw_Data)$Well)
@@ -48,7 +48,7 @@ LAMPrey.analyse = function() {
   for (i in unique(well_list)) {
     LAMPrey_Results$Gene[LAMPrey_Results$Well == i] <<- Setup$Target.Name[Setup$Well == i]
     LAMPrey_Results$Task[LAMPrey_Results$Well == i] <<- Setup$Task[Setup$Well == i]
-    LAMPrey_Results$LAMPrey[LAMPrey_Results$Well == i] <<- approx(Raw_Data$normalised[Raw_Data$Well == i], 
+    LAMPrey_Results$iCT[LAMPrey_Results$Well == i] <<- approx(Raw_Data$normalised[Raw_Data$Well == i], 
                                                                   Raw_Data$Cycle[Raw_Data$Well == i], 
                                                                   max(na.omit(Raw_Data$normalised[Raw_Data$Well == i])))[2] }
-} ### Calculates a CT approximation for each well and creates a result dataframe named LAMPrey_Results ###
+} ### Calculates a iCT approximation for each well and creates a result dataframe named LAMPrey_Results ###
