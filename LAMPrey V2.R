@@ -22,10 +22,16 @@ LAMPrey.Read_QuantStudio = function(){
 } ### Reads in the data from an excel output from a stepone, specifically raw data and results ###
 
 
-LAMPrey.annotate = function() {
-  Raw_Data$Gene <<- Setup$Target.Name[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
+LAMPrey.annotate_StepOne = function() {
+  Raw_Data$Gene <<- Setup$Target.Name[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)
+  Raw_Data$Task <<- Setup$Task[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
+} 
+
+LAMPrey.annotate_QuantStudio = function() {
+  Raw_Data$Gene <<- Setup$'Target Name'[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
   Raw_Data$Task <<- Setup$Task[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
 } ### annotates the raw data with columns detailing the genes and the task of the well (standard/unknown) ###
+
 LAMPrey.normalise = function(x) {
   well_list = unique(na.omit(Raw_Data)$Well)
   cycle_list = unique(na.omit(Raw_Data)$Cycle)
@@ -35,6 +41,7 @@ LAMPrey.normalise = function(x) {
         (Raw_Data[[x]][Raw_Data$Cycle == cycle_list[cy] & Raw_Data$Well == i ]) 
     } }
   return(Raw_Data)} ### Uses the colour channel name as input - x = "GREEN", to calculate the Normalised LAMP value ###
+                                      
 LAMPrey.analyse = function() {
   well_list = unique(na.omit(Raw_Data)$Well)
   LAMPrey_Results <<- data.frame(Well = well_list)
