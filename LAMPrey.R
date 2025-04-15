@@ -23,7 +23,7 @@ LAMPrey.Read_QuantStudio = function(){
 
 
 LAMPrey.annotate_StepOne = function() {
-  Raw_Data$Gene <<- Setup$Target.Name[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)
+  Raw_Data$Gene <<- Setup$Target.Name[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
   Raw_Data$Task <<- Setup$Task[pmatch(Raw_Data$Well, Setup$Well, duplicates.ok = TRUE)]
 } 
 
