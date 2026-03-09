@@ -1,0 +1,458 @@
+---
+title: "ddct"
+author: "Kat Valero"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+#comments
+
+##Lamprey function for use on any plate
+#Reads and cleans the plate sample sheet from a QuantStudio thermocycler, removes blanks, parses gene and sample IDs, and assigns technical replicates.
+#Reads raw LAMP fluorescence data, converts signal columns to numeric, and selects the chosen fluorescence channel.
+#Calculates a forward 5-cycle signal ratio per well to identify the cycle of strongest amplification.
+#Applies a minimum amplification threshold and returns inferred iCT values joined to the sample metadata.
+
+#libraries
+```{r}
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tibble)
+```
+
+#iCt5
+```{r}
+
+
+compute_plate_iCT_n5 <- function(samples_file, raw_file, plate_no, thr = 1.2, channel = "x1-m1") {
+
+  # sample sheet
+  samples <- read.csv(samples_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well = `Well`, well_pos = `Well Position`, sample_name = `Sample Name`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      sample_name = trimws(as.character(sample_name)),
+      sample_name = na_if(sample_name, ""),              # <-- remove empty strings
+      plate_no = plate_no
+    ) %>%
+    filter(!is.na(sample_name), tolower(sample_name) != "blank") %>%  # <-- removes blanks too
+    mutate(
+      gene = str_trim(str_remove(sample_name, "\\s*#.*$")),
+      lamp_sample = as.integer(str_extract(sample_name, "\\d+$"))
+    ) %>%
+    group_by(gene, lamp_sample) %>%
+    arrange(well_pos, .by_group = TRUE) %>%
+    mutate(techrep = row_number()) %>%
+    ungroup()
+
+  # raw sheet
+  raw <- read.csv(raw_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well = `Well`, well_pos = `Well Position`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      plate_no = plate_no
+    )
+
+  # numeric convert x*-m* columns
+  xcols <- grep("^x\\d+-m\\d+$", names(raw), value = TRUE)
+  raw[xcols] <- lapply(raw[xcols], function(z) as.numeric(gsub(",", "", z)))
+
+  raw$signal <- raw[[channel]]
+
+  eps <- 1e-6
+
+  raw_lags <- raw %>%
+    group_by(well_pos) %>%
+    arrange(Cycle, .by_group = TRUE) %>%
+    mutate(norm_n5 = lead(signal, 5) / pmax(signal, eps)) %>%
+    ungroup()
+
+  ict_by_well <- raw_lags %>%
+    group_by(well_pos) %>%
+    summarise(
+      iCT_n5 = Cycle[which.max(ifelse(is.na(norm_n5), -Inf, norm_n5))],
+      max_n5 = max(norm_n5, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      iCT_n5 = ifelse(is.infinite(max_n5), NA, iCT_n5),
+      max_n5 = ifelse(is.infinite(max_n5), NA, max_n5),
+      iCT_n5 = ifelse(max_n5 < thr, NA, iCT_n5)
+    )
+
+  out <- samples %>% left_join(ict_by_well, by = "well_pos")
+  out
+}
+
+
+```
+
+#iCt1
+```{r}
+compute_plate_iCT_n1 <- function(samples_file, raw_file, plate_no, thr = 1.2, channel = "x1-m1") {
+
+   samples <- read.csv(samples_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well = `Well`, well_pos = `Well Position`, sample_name = `Sample Name`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      sample_name = trimws(as.character(sample_name)),
+      sample_name = na_if(sample_name, ""),
+      plate_no = plate_no
+    ) %>%
+    filter(!is.na(sample_name), tolower(sample_name) != "blank") %>%
+    mutate(
+      gene = str_trim(str_remove(sample_name, "\\s*#.*$")),
+      lamp_sample = as.integer(str_extract(sample_name, "\\d+$"))
+    ) %>%
+    group_by(gene, lamp_sample) %>%
+    arrange(well_pos, .by_group = TRUE) %>%
+    mutate(techrep = row_number()) %>%
+    ungroup()
+
+  raw <- read.csv(raw_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well = `Well`, well_pos = `Well Position`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      plate_no = plate_no
+    )
+
+  xcols <- grep("^x\\d+-m\\d+$", names(raw), value = TRUE)
+  raw[xcols] <- lapply(raw[xcols], function(z) as.numeric(gsub(",", "", z)))
+
+  raw$signal <- raw[[channel]]
+  eps <- 1e-6
+
+  raw_lags <- raw %>%
+    group_by(well_pos) %>%
+    arrange(Cycle, .by_group = TRUE) %>%
+    mutate(norm_n1 = lead(signal, 1) / pmax(signal, eps)) %>%
+    ungroup()
+
+  ict_by_well <- raw_lags %>%
+    group_by(well_pos) %>%
+    summarise(
+      iCT_n1 = Cycle[which.max(ifelse(is.na(norm_n1), -Inf, norm_n1))],
+      max_n1 = max(norm_n1, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      iCT_n1 = ifelse(is.infinite(max_n1), NA, iCT_n1),
+      max_n1 = ifelse(is.infinite(max_n1), NA, max_n1),
+      iCT_n1 = ifelse(max_n1 < thr, NA, iCT_n1)
+    )
+
+  out <- samples %>% left_join(ict_by_well, by = "well_pos")
+  out
+}
+
+```
+
+#ict 2
+```{r}
+compute_plate_iCT_n2 <- function(samples_file, raw_file, plate_no, thr = 1.2, channel = "x1-m1") {
+
+  library(dplyr)
+  library(stringr)
+
+  samples <- read.csv(samples_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well = `Well`, well_pos = `Well Position`, sample_name = `Sample Name`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      sample_name = trimws(as.character(sample_name)),
+      sample_name = na_if(sample_name, ""),
+      plate_no = plate_no
+    ) %>%
+    filter(!is.na(sample_name), tolower(sample_name) != "blank") %>%
+    mutate(
+      gene = str_trim(str_remove(sample_name, "\\s*#.*$")),
+      lamp_sample = as.integer(str_extract(sample_name, "\\d+$"))
+    ) %>%
+    group_by(gene, lamp_sample) %>%
+    arrange(well_pos, .by_group = TRUE) %>%
+    mutate(techrep = row_number()) %>%
+    ungroup()
+
+  raw <- read.csv(raw_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well = `Well`, well_pos = `Well Position`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      plate_no = plate_no
+    )
+
+  xcols <- grep("^x\\d+-m\\d+$", names(raw), value = TRUE)
+  raw[xcols] <- lapply(raw[xcols], function(z) as.numeric(gsub(",", "", z)))
+
+  raw$signal <- raw[[channel]]
+  eps <- 1e-6
+
+  raw_lags <- raw %>%
+    group_by(well_pos) %>%
+    arrange(Cycle, .by_group = TRUE) %>%
+    mutate(norm_n2 = lead(signal, 2) / pmax(signal, eps)) %>%
+    ungroup()
+
+  ict_by_well <- raw_lags %>%
+    group_by(well_pos) %>%
+    summarise(
+      iCT_n2 = Cycle[which.max(ifelse(is.na(norm_n2), -Inf, norm_n2))],
+      max_n2 = max(norm_n2, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      iCT_n2 = ifelse(is.infinite(max_n2), NA, iCT_n2),
+      max_n2 = ifelse(is.infinite(max_n2), NA, max_n2),
+      iCT_n2 = ifelse(max_n2 < thr, NA, iCT_n2)
+    )
+
+  out <- samples %>% left_join(ict_by_well, by = "well_pos")
+  out
+}
+
+```
+
+
+##run the function across all plates and merge the results 
+#Identifies all sample-sheet and raw-data CSV files in a folder and extracts plate numbers from filenames.
+#Matches sample and raw files by plate number to build a per-plate lookup table.
+#Iterates over plates and applies compute_plate_iCT() to each, combining results into a single data frame.
+#Writes the combined per-sample iCT results to disk for downstream analysis.
+
+```{r}
+
+
+folder <- "C:/directory/lamp_ict"
+
+samples_files <- list.files(folder, pattern = "_samples\\.csv$", full.names = TRUE)
+raw_files     <- list.files(folder, pattern = "_raw\\.csv$",     full.names = TRUE)
+
+get_plate_no <- function(path) {
+  as.integer(str_extract(tolower(basename(path)), "\\d+(?=_(samples|raw)\\.csv$)"))
+}
+
+samples_tbl <- tibble(
+  samples_file = samples_files,
+  plate_no = get_plate_no(samples_files)
+) %>%
+  filter(!is.na(plate_no)) %>%
+  distinct(plate_no, .keep_all = TRUE)
+
+raw_tbl <- tibble(
+  raw_file = raw_files,
+  plate_no = get_plate_no(raw_files)
+) %>%
+  filter(!is.na(plate_no)) %>%
+  distinct(plate_no, .keep_all = TRUE)
+
+plates <- inner_join(samples_tbl, raw_tbl, by = "plate_no") %>%
+  arrange(plate_no)
+
+# --------- RUN n = 1 ----------
+all_iCT_n1 <- pmap_dfr(
+  list(plates$samples_file, plates$raw_file, plates$plate_no),
+  ~ compute_plate_iCT_n1(..1, ..2, ..3, thr = 1.2, channel = "x1-m1")
+)
+
+# --------- RUN n = 2 ----------
+all_iCT_n2 <- pmap_dfr(
+  list(plates$samples_file, plates$raw_file, plates$plate_no),
+  ~ compute_plate_iCT_n2(..1, ..2, ..3, thr = 1.2, channel = "x1-m1")
+)
+
+# --------- RUN n = 5 ----------
+all_iCT_n5 <- pmap_dfr(
+  list(plates$samples_file, plates$raw_file, plates$plate_no),
+  ~ compute_plate_iCT_n5(..1, ..2, ..3, thr = 1.2, channel = "x1-m1")
+)
+
+# --------- RENAME COLUMNS SO THEY DON'T CLASH ----------
+all_iCT_n1 <- all_iCT_n1 %>% rename(iCT_n1 = iCT_n1)
+all_iCT_n2 <- all_iCT_n2 %>% rename(iCT_n2 = iCT_n2)
+all_iCT_n5 <- all_iCT_n5 %>% rename(iCT_n5 = iCT_n5)
+
+# --------- MERGE THEM ----------
+all_samples_with_all_iCTs <- all_iCT_n1 %>%
+  select(plate_no, gene, lamp_sample, techrep, iCT_n1) %>%
+  left_join(
+    all_iCT_n2 %>% select(plate_no, gene, lamp_sample, techrep, iCT_n2),
+    by = c("plate_no", "gene", "lamp_sample", "techrep")
+  ) %>%
+  left_join(
+    all_iCT_n5 %>% select(plate_no, well_pos, gene, lamp_sample, techrep, iCT_n5),
+    by = c("plate_no", "gene", "lamp_sample", "techrep")
+  )
+
+# --------- SAVE ----------
+write.csv(
+  all_samples_with_all_iCTs,
+  file.path(folder, "all_plates_iCT_n1_n2_n5.csv"),
+  row.names = FALSE
+)
+
+```
+
+#Compute the FDM with base R (stats package) and add to the table with iCT values
+
+```{r}
+
+folder <- "C:/directory/lamp_ict"
+
+# --- files already used for iCT ---
+samples_files <- list.files(folder, pattern = "_samples\\.csv$", full.names = TRUE)
+raw_files     <- list.files(folder, pattern = "_raw\\.csv$",     full.names = TRUE)
+
+get_plate_no <- function(path) {
+  as.integer(str_extract(tolower(basename(path)), "\\d+(?=_(samples|raw)\\.csv$)"))
+}
+
+samples_tbl <- tibble(
+  samples_file = samples_files,
+  plate_no = get_plate_no(samples_files)
+) %>%
+  filter(!is.na(plate_no)) %>%
+  distinct(plate_no, .keep_all = TRUE)
+
+raw_tbl <- tibble(
+  raw_file = raw_files,
+  plate_no = get_plate_no(raw_files)
+) %>%
+  filter(!is.na(plate_no)) %>%
+  distinct(plate_no, .keep_all = TRUE)
+
+plates <- inner_join(samples_tbl, raw_tbl, by = "plate_no") %>%
+  arrange(plate_no)
+
+#  FDM fit for one well (4PL sigmoid)
+fit_fdm_one <- function(dat) {
+
+  dat <- dat[order(dat$Cycle), ]
+  x <- dat$Cycle
+  y_raw <- dat$signal
+
+  # baseline correction (first 10 cycles)
+  base <- mean(y_raw[x <= 10], na.rm = TRUE)
+  y <- y_raw - base
+  y[y < 0] <- 0
+
+  # skip if essentially flat
+  if (max(y, na.rm = TRUE) < 1000) {
+    return(data.frame(FDM = NA, fit_ok = FALSE))
+  }
+
+  A0 <- min(y, na.rm = TRUE)
+  K0 <- max(y, na.rm = TRUE)
+  M0 <- x[which.min(abs(y - (A0 + (K0 - A0)/2)))]
+  B0 <- 0.2
+
+  tryCatch({
+    fit <- nls(
+      y ~ A + (K - A) / (1 + exp(-B * (x - M))),
+      start = list(A = A0, K = K0, B = B0, M = M0),
+      control = nls.control(maxiter = 200)
+    )
+    co <- coef(fit)
+    data.frame(FDM = unname(co["M"]), fit_ok = TRUE)
+  }, error = function(e) {
+    data.frame(FDM = NA, fit_ok = FALSE)
+  })
+}
+
+# compute FDM per plate from *_raw.csv
+compute_plate_FDM <- function(raw_file, plate_no, channel = "x1-m1", max_cycle = 80) {
+
+  raw <- read.csv(raw_file, skip = 46, header = TRUE, check.names = FALSE) %>%
+    rename(well_pos = `Well Position`) %>%
+    mutate(
+      well_pos = trimws(as.character(well_pos)),
+      plate_no = plate_no
+    )
+
+  # numeric convert x*-m* columns
+  xcols <- grep("^x\\d+-m\\d+$", names(raw), value = TRUE)
+  raw[xcols] <- lapply(raw[xcols], function(z) as.numeric(gsub(",", "", z)))
+
+  raw <- raw %>%
+    mutate(signal = raw[[channel]],
+           Cycle = as.numeric(Cycle)) %>%
+    filter(Cycle <= max_cycle)
+
+  fdm_tbl <- raw %>%
+    group_by(plate_no, well_pos) %>%
+    group_modify(~ fit_fdm_one(.x)) %>%
+    ungroup()
+
+  fdm_tbl
+}
+
+all_FDM <- pmap_dfr(
+  list(plates$raw_file, plates$plate_no),
+  ~ compute_plate_FDM(..1, ..2, channel = "x1-m1", max_cycle = 80)
+)
+
+write.csv(all_FDM,
+          file.path(folder, "all_plates_FDM_from_raw.csv"),
+          row.names = FALSE)
+
+# merge into the iCT table 
+ict_all <- read.csv(file.path(folder, "all_plates_iCT_n1_n2_n5.csv"))
+
+ict_plus_fdm <- ict_all %>%
+  left_join(all_FDM, by = c("plate_no", "well_pos"))
+
+write.csv(ict_plus_fdm,
+          file.path(folder, "all_plates_iCT_n1_n2_n5_FDM.csv"),
+          row.names = FALSE)
+
+```
+
+
+#Loads master LAMP dataset and inferred iCT values, standardises keys, and merges iCT and FDM into the main data table containing auto-called Ct values.
+```{r}
+
+
+#  Load master data (contains CT) 
+df <- read.csv("C:directory/sv_lampdata.csv", check.names = FALSE)
+
+if ("Plate_#" %in% names(df)) df <- df %>% rename(plate = `Plate_#`)
+
+df_clean <- df %>%
+  mutate(
+    plate = as.integer(str_extract(as.character(plate), "\\d+")),
+    `LAMP_sample_#` = as.integer(str_extract(as.character(`LAMP_sample_#`), "\\d+")),
+    techrep = as.integer(str_extract(as.character(techrep), "\\d+")),
+    gene = as.character(gene),
+    CT = as.numeric(gsub(",", "", as.character(CT)))
+  )
+
+# Load new iCT + FDM table
+ict_fdm <- read.csv("C:/directory/all_plates_iCT_n1_n2_n5_FDM.csv")
+
+ict_fdm_clean <- ict_fdm %>%
+  mutate(
+    plate = as.integer(str_extract(as.character(plate_no), "\\d+")),
+    `LAMP_sample_#` = as.integer(str_extract(as.character(lamp_sample), "\\d+")),
+    techrep = as.integer(str_extract(as.character(techrep), "\\d+")),
+    gene = as.character(gene)
+  )
+
+# Merge everything
+merged_all <- df_clean %>%
+  left_join(
+    ict_fdm_clean %>%
+      select(plate, `LAMP_sample_#`, techrep, gene,
+             iCT_n1, iCT_n2, iCT_n5, FDM, fit_ok),
+    by = c("plate", "LAMP_sample_#", "techrep", "gene")
+  )
+
+write.csv(merged_all,
+          "C:/directory/SV_CT_iCT_FDM_per_well.csv",
+          row.names = FALSE)
+
+
+```
+
